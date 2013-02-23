@@ -9,6 +9,7 @@ import subprocess
 import sys
 import traceback
 import dateutil.parser
+import zephyr
 
 HERE = os.path.abspath(os.path.dirname(__file__))
 ZWRITE = os.path.join(HERE, 'bin', 'zsend')
@@ -35,6 +36,12 @@ msg: %(msg)s""" % {'sender' : sender,
                    'instance' : instance,
                    'zsig' : zsig,
                    'msg' : msg})
+    #z = zephyr.ZNotice()
+    #z.sender = sender
+    #z.cls = klass
+    #z.instance = instance
+    #z.fields = [ zsig, msg ]
+    #z.send()
     cmd = [ZWRITE, '-c', klass, '-i', instance,
            '-s', zsig, '-d', '-m', msg]
     subprocess.check_call([p.encode('utf-8') for p in cmd])
