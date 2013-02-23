@@ -24,14 +24,21 @@ logger.setLevel(logging.DEBUG)
 handler = logging.FileHandler(LOG_FILENAME)
 logger.addHandler(handler)
 
+formatter = logging.Formatter(fmt='%(levelname)-8s %(asctime)s %(message)s')
+handler.setFormatter(formatter)
+
+
 def send_zephyr(sender, klass, instance, zsig, msg):
     # TODO: spoof the sender
     logger.info("""About to send zephyr:
+\"\"\"
 sender: %(sender)s
 class: %(klass)s
 instance: %(instance)s
 zsig: %(zsig)s
-msg: %(msg)s""" % {'sender' : sender,
+msg: %(msg)s
+\"\"\"
+""" % {'sender' : sender,
                    'klass' : klass,
                    'instance' : instance,
                    'zsig' : zsig,
