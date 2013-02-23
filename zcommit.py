@@ -51,7 +51,7 @@ msg: %(msg)s
     #z.send()
     cmd = [ZWRITE, '-c', klass, '-i', instance,
            '-s', zsig, '-d', '-m', msg]
-    subprocess.check_call([p.encode('utf-8') for p in cmd])
+    output = subprocess.check_output([p.encode('utf-8') for p in cmd])
 
 class Application(object):
     @cherrypy.expose
