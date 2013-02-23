@@ -29,10 +29,3 @@ following optional key/value parameters:
     * /instance/$instance
     * /zsig/$zsig
     * /sender/$sender
-
-==== Default ====
-
-This option allows you to send an arbitrary zephyr.  Same as github,
-but with "github" replaced by "default" in the URL, and no "sender"
-parameter. The "payload" parameter of the POST should contain the body
-of the zephyr.
