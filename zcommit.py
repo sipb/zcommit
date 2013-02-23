@@ -12,6 +12,7 @@ import dateutil.parser
 
 HERE = os.path.abspath(os.path.dirname(__file__))
 ZWRITE = os.path.join(HERE, 'bin', 'zsend')
+ZWRITE = '/usr/bin/zwrite'
 LOG_FILENAME = 'logs/zcommit.log'
 
 # Set up a specific logger with our desired output level
@@ -22,7 +23,7 @@ logger.setLevel(logging.DEBUG)
 handler = logging.FileHandler(LOG_FILENAME)
 logger.addHandler(handler)
 
-def zephyr(sender, klass, instance, zsig, msg):
+def send_zephyr(sender, klass, instance, zsig, msg):
     # TODO: spoof the sender
     logger.info("""About to send zephyr:
 sender: %(sender)s
@@ -34,7 +35,7 @@ msg: %(msg)s""" % {'sender' : sender,
                    'instance' : instance,
                    'zsig' : zsig,
                    'msg' : msg})
-    cmd = [ZWRITE, '-S', sender, '-c', klass, '-i', instance,
+    cmd = [ZWRITE, '-c', klass, '-i', instance,
            '-s', zsig, '-d', '-m', msg]
     subprocess.check_call([p.encode('utf-8') for p in cmd])
 
@@ -131,7 +132,7 @@ Date:   %(timestamp)s
 %(message)s
 ---
 %(actions)s""" % info
-                    zephyr(sender, opts['class'], inst, zsig, msg)
+                    send_zephyr(sender, opts['class'], inst, zsig, msg)
                 msg = 'Thanks for posting!'
             else:
                 msg = ('If you had sent a POST request to this URL, would have sent'
