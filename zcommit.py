@@ -5,6 +5,8 @@ from flup.server.fcgi import WSGIServer
 import logging
 import json
 import os
+import posixpath
+import requests
 import subprocess
 import sys
 import traceback
@@ -15,6 +17,10 @@ HERE = os.path.abspath(os.path.dirname(__file__))
 ZWRITE = os.path.join(HERE, 'bin', 'zsend')
 ZWRITE = '/usr/bin/zwrite'
 LOG_FILENAME = 'logs/zcommit.log'
+
+MAX_DIFF_LINES = 50
+MAX_DIFFSTAT_WIDTH = 80
+MIN_DIFFSTAT_GRAPH_WIDTH = 30
 
 # Set up a specific logger with our desired output level
 logger = logging.getLogger(__name__)
@@ -27,6 +33,95 @@ logger.addHandler(handler)
 formatter = logging.Formatter(fmt='%(levelname)-8s %(asctime)s %(message)s')
 handler.setFormatter(formatter)
 
+def format_rename(old, new):
+    prefix = posixpath.commonprefix([old, new])
+    suffix = posixpath.commonprefix([old[::-1], new[::-1]])[::-1]
+    return "%s{%s => %s}%s" % (
+        prefix,
+        old[len(prefix):-len(suffix)],
+        new[len(prefix):-len(suffix)],
+        suffix,
+    )
+
+def format_commit(c, commit_url):
+    info = {'name' : c['author']['name'],
+            'email' : c['author']['email'],
+            'message' : c['message'],
+            'timestamp' : dateutil.parser.parse(c['timestamp']).strftime('%F %T %z'),
+            'url' : c['url']}
+
+    header = """%(url)s
+Author: %(name)s <%(email)s>
+Date:   %(timestamp)s
+
+%(message)s
+---
+""" % info
+
+    try:
+        # Check if the diff is small enough
+        r = requests.get(commit_url, headers={'Accept': 'application/vnd.github.diff'})
+        diff = r.text
+        if len(diff.splitlines()) <= MAX_DIFF_LINES:
+            return header + diff
+
+        # Otherwise, try to render a diffstat
+        r = requests.get(commit_url)
+        commit_details = r.json()
+
+        max_filename_len = 0
+        max_changes_len = 0
+        actions = []
+        for f in commit_details['files']:
+            filename = f['filename']
+            if f['status'] == 'renamed':
+                filename = format_rename(f['previous_filename'], filename)
+            max_filename_len = max(max_filename_len, len(filename))
+            changes = str(f['changes'])
+            if 'patch' not in f:
+                changes = 'Bin'
+            max_changes_len = max(max_changes_len, len(changes))
+            actions.append({
+                'filename': filename,
+                'changes': changes,
+                'status': f['status'],
+                'additions': f['additions'],
+                'deletions': f['deletions'],
+                })
+        graph_width = max(MIN_DIFFSTAT_GRAPH_WIDTH, MAX_DIFFSTAT_WIDTH - (max_filename_len + max_changes_len + 3))
+        lines = []
+        for a in actions:
+            additions = a['additions']
+            deletions = a['deletions']
+            total = additions + deletions
+            if additions + deletions > graph_width:
+                additions = (additions * graph_width / total)
+                deletions = (deletions * graph_width / total)
+            graph = ('+' * additions) + ('-' * deletions)
+            if a['changes'] == 'Bin':
+                graph = a['status']
+            lines.append('%-*s | %*s %s' % (
+                max_filename_len, a['filename'],
+                max_changes_len, a['changes'],
+                graph,
+            ))
+        return header + '\n'.join(lines)
+    except:
+        logger.exception('failed to fetch commit info from GitHub')
+
+    # If we can't get the diff, fall back on the list of changed files.
+    actions = []
+    if c.get('added'):
+        actions.extend('  A %s\n' % f for f in c['added'])
+    if c.get('removed'):
+        actions.extend('  D %s\n' % f for f in c['removed'])
+    if c.get('modified'):
+        actions.extend('  M %s\n' % f for f in c['modified'])
+    if not actions:
+        actions.append('Did not add/remove/modify any nonempty files.')
+    actions = ''.join(actions)
+
+    return header + actions
 
 def send_zephyr(sender, klass, instance, zsig, msg):
     # TODO: spoof the sender
@@ -123,29 +218,7 @@ any of the following optional key/value parameters:
                 logger.debug('Set zsig')
                 for c in payload['commits']:
                     inst = opts.get('instance', c['id'][:8])
-                    actions = []
-                    if c.get('added'):
-                        actions.extend('  A %s\n' % f for f in c['added'])
-                    if c.get('removed'):
-                        actions.extend('  D %s\n' % f for f in c['removed'])
-                    if c.get('modified'):
-                        actions.extend('  M %s\n' % f for f in c['modified'])
-                    if not actions:
-                        actions.append('Did not add/remove/modify any nonempty files.')
-                    info = {'name' : c['author']['name'],
-                            'email' : c['author']['email'],
-                            'message' : c['message'],
-                            'timestamp' : dateutil.parser.parse(c['timestamp']).strftime('%F %T %z'),
-                            'actions' : ''.join(actions),
-                            'url' : c['url']}
-                    
-                    msg = """%(url)s
-Author: %(name)s <%(email)s>
-Date:   %(timestamp)s
-
-%(message)s
----
-%(actions)s""" % info
+                    msg = format_commit(c, payload['repository']['commits_url'].replace('{/sha}', '/'+c['id']))
                     send_zephyr(sender, opts['class'], inst, zsig, msg)
                 msg = 'Thanks for posting!'
             else:
