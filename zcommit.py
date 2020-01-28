@@ -6,6 +6,7 @@ import logging
 import json
 import os
 import posixpath
+import re
 import requests
 import subprocess
 import sys
@@ -33,6 +34,11 @@ logger.addHandler(handler)
 formatter = logging.Formatter(fmt='%(levelname)-8s %(asctime)s %(message)s')
 handler.setFormatter(formatter)
 
+def zescape(input):
+    return (input
+            .replace('@', '@@')
+            .replace('}', '@(})'))
+
 def format_rename(old, new):
     prefix = posixpath.commonprefix([old, new])
     suffix = posixpath.commonprefix([old[::-1], new[::-1]])[::-1]
@@ -43,14 +49,41 @@ def format_rename(old, new):
         suffix,
     )
 
-def format_commit(c, commit_url):
-    info = {'name' : c['author']['name'],
-            'email' : c['author']['email'],
-            'message' : c['message'],
-            'timestamp' : dateutil.parser.parse(c['timestamp']).strftime('%F %T %z'),
-            'url' : c['url']}
+def colorize_diff(diff):
+    diff = zescape(diff)
+    out = []
+    in_diff = False
+    for l in diff.splitlines():
+        if not l:
+            out.append(l)
+            continue
+        color = None
+        if l[0] == '@':
+            in_diff = True
+            color = 'cyan'
+        elif in_diff:
+            if l[0] == '+':
+                color = 'green'
+            elif l[0] == '-':
+                color = 'red'
+            elif l[0] == ' ':
+                out.append(l)
+                continue
+        if color:
+            out.append('@{@color{%s}%s}' % (color, l))
+            continue
+        in_diff = False
+        out.append('@b{%s}' % (l,))
+    return '\n'.join(out)
 
-    header = """%(url)s
+def format_commit(c, commit_url):
+    info = {'name' : zescape(c['author']['name']),
+            'email' : zescape(c['author']['email']),
+            'message' : zescape(c['message']),
+            'timestamp' : dateutil.parser.parse(c['timestamp']).strftime('%F %T %z'),
+            'url' : zescape(c['url'])}
+
+    header = """@{@color(yellow)%(url)s}
 Author: %(name)s <%(email)s>
 Date:   %(timestamp)s
 
@@ -63,7 +96,7 @@ Date:   %(timestamp)s
         r = requests.get(commit_url, headers={'Accept': 'application/vnd.github.diff'})
         diff = r.text
         if len(diff.splitlines()) <= MAX_DIFF_LINES:
-            return header + diff
+            return header + colorize_diff(diff)
 
         # Otherwise, try to render a diffstat
         r = requests.get(commit_url)
@@ -97,7 +130,13 @@ Date:   %(timestamp)s
             if additions + deletions > graph_width:
                 additions = (additions * graph_width / total)
                 deletions = (deletions * graph_width / total)
-            graph = ('+' * additions) + ('-' * deletions)
+            additions = '+' * additions
+            if additions:
+                additions = '@{@color(green)%s}' % (additions,)
+            deletions = '-' * deletions
+            if deletions:
+                deletions = '@{@color(red)%s}' % (deletions,)
+            graph = additions + deletions
             if a['changes'] == 'Bin':
                 graph = a['status']
             lines.append('%-*s | %*s %s' % (
