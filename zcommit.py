@@ -92,6 +92,8 @@ Date:   %(timestamp)s
 """ % info
 
     try:
+        if not commit_url.startswith('https://api.github.com/'):
+            raise ValueError('refusing to fetch commit information from '+commit_url)
         # Check if the diff is small enough
         r = requests.get(commit_url, headers={'Accept': 'application/vnd.github.diff'})
         diff = r.text
